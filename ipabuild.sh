@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
 
@@ -50,7 +50,9 @@ cp -r "$DD_APP_PATH" "$TARGET_APP"
 fi
 
 echo "[*] Stripping signature..."
-codesign --remove "$TARGET_APP"
+if codesign --display "$TARGET_APP" >/dev/null 2>&1; then
+    codesign --remove-signature "$TARGET_APP"
+fi
 if [ -e "$TARGET_APP/_CodeSignature" ]; then
     rm -rf "$TARGET_APP/_CodeSignature"
 fi
@@ -59,12 +61,13 @@ if [ -e "$TARGET_APP/embedded.mobileprovision" ]; then
 fi
 
 echo "[*] Adding entitlements..."
-ldid -S"$WORKING_LOCATION/Erosion/Erosion.entitlements" "$TARGET_APP"
+APP_EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$TARGET_APP/Info.plist")
+ldid -S"$WORKING_LOCATION/Erosion/Erosion.entitlements" "$TARGET_APP/$APP_EXECUTABLE"
 
 echo "[*] Packaging..."
 mkdir Payload
-cp -r $APPLICATION_NAME.app Payload/$APPLICATION_NAME.app
-zip -9vr $APPLICATION_NAME.ipa Payload
+cp -r "$APPLICATION_NAME.app" "Payload/$APPLICATION_NAME.app"
+zip -9vr "$APPLICATION_NAME.ipa" Payload
 
 echo "[*] All done, cleaning up..."
 rm -rf Payload

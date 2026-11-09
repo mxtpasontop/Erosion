@@ -5,7 +5,8 @@
 //  Created by lunginspector on 7/22/26.
 //
 
-import SwiftUI
+import Foundation
+import Darwin
 
 enum FolderType {
     case normal, bundle, container
@@ -22,9 +23,8 @@ func getFolderType(url: URL) -> FolderType {
     return .normal
 }
 
-// this is awful
 func getBIDFromXattr(_ url: URL) -> String? {
-    wq.grantAccess(path: url.path)
+    _ = wq.grantAccess(path: url.path)
     
     var buf = [UInt8](repeating: 0, count: 512)
     
@@ -32,20 +32,23 @@ func getBIDFromXattr(_ url: URL) -> String? {
         getxattr(url.path, "com.apple.containermanager.identifier", $0.baseAddress, 511, 0, XATTR_NOFOLLOW)
     }
     if len < 0 {
-        print("failed to read xattr: \(String(cString: strerror(errno))) (errno \(errno))")
+        let error = errno
+        // Some containers identify themselves only in their metadata plist.
+        if error != ENOATTR {
+            print("failed to read container xattr at \(url.path): \(String(cString: strerror(error))) (errno \(error))")
+        }
         return nil
     }
-    let bid = String(cString: buf)
-    
-    if !bid.isEmpty {
-        return bid
-    }
-    return nil
+    let bytes = buf.prefix(Int(len)).prefix { $0 != 0 }
+    guard let bid = String(bytes: bytes, encoding: .utf8), !bid.isEmpty else { return nil }
+    return bid
 }
 
-// i don't know why root's works and mine doesn't, but i'm stealing it.
 func folderLabel(url: URL) -> String? {
-    /*
+    if let id = getBIDFromXattr(url) {
+        return id
+    }
+
     let candidates = [
         url.appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist"),
         url.appendingPathComponent("com.apple.mobile_container_manager.metadata.plist")
@@ -58,30 +61,24 @@ func folderLabel(url: URL) -> String? {
     }
 
     for url in candidates {
-        if let id = readMetaKey(at: url, key: "MCMMetadataIdentifier") {
+        if let id = readMetaKey(at: url, key: "MCMMetadataIdentifier"), !id.isEmpty {
             return id
         }
     }
-     */
-
-    return getBIDFromXattr(url)
+    return nil
 }
 
 func metadataID(from data: Data) -> String? {
     let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
-    return plist?["MCMMetadataIdentifier"] as? String
+    guard let id = plist?["MCMMetadataIdentifier"] as? String, !id.isEmpty else { return nil }
+    return id
 }
 
 func readMetaKey(at url: URL, key: String) -> String? {
-    if url.path.contains("/var/mobile/Containers/Shared/AppGroup") && ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26 {
-        let handle = worse_query(url.path, group, true, false)
-        guard handle >= 0 else { return nil }
-        do { worse_query_release(handle) }
-    } else {
-        let handle = worse_query(url.path, group, false, false)
-        guard handle >= 0 else { return nil }
-        do { worse_query_release(handle) }
-    }
+    let alternateFlags = url.path.contains("/var/mobile/Containers/Shared/AppGroup") && ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26
+    let handle = worse_query(url.path, group, alternateFlags, false)
+    guard handle >= 0 else { return nil }
+    defer { worse_query_release(handle) }
      
     guard let data = try? Data(contentsOf: url),
           let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {

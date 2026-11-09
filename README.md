@@ -11,6 +11,25 @@
   <a href="https://jailbreak.party"><img alt="Static Badge" src="https://img.shields.io/badge/jailbreak.party-blue?style=flat-square&label=%20&color=3868DB"></a>
 </div>
 
+### Automated IPA builds
+
+The **Build and release IPA** GitHub Actions workflow tests container identification,
+builds the app on macOS, and uploads `Erosion.ipa` as both a workflow artifact and a
+GitHub Release asset. Pushes to `main` and manual runs create numbered prereleases;
+pushing a `v*` tag creates a regular release for that tag. Re-running a tag build
+replaces its IPA asset. No signing certificate or repository secret is required:
+the workflow uses `GITHUB_TOKEN` to publish and `ldid` to embed the app entitlements.
+Re-sign the IPA with your sideloading tool before installing it.
+
+Container identification checks the bundle ID xattr first and falls back to either
+container metadata plist when that attribute is missing (`ENOATTR`, errno 93).
+On macOS, run the regression checks with:
+
+```sh
+xcrun swiftc Erosion/FileManager/Helpers/InfoHelpers.swift Tests/ContainerMetadataTests.swift -o /tmp/erosion-container-tests
+/tmp/erosion-container-tests
+```
+
 ### Before you begin...
 - Please create a backup of your device before usage! While Erosion has been extensively tested, there is still a possibility that you could lose your data by using this tool.
 - If a tweak doesn't work how you were expecting, **do not open an issue or ask for support regarding it!** All tweaks are reliant on your device cooperating properly, and in some cases this can even involve Apple's servers. We'll be unable to help you.
